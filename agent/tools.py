@@ -3,14 +3,21 @@
 import json
 from typing import Callable
 
-from agent.procurement_tools.invoices import GET_INVOICES_SCHEMA, get_invoices
+from agent.procurement_tools.invoices import (
+    GET_INVOICES_SCHEMA,
+    GET_INVOICE_SCHEMA,
+    get_invoices,
+    get_invoice,
+)
 
 TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "get_invoices": get_invoices,
+    "get_invoice": get_invoice,
 }
 
 TOOL_SCHEMAS: list[dict] = [
     GET_INVOICES_SCHEMA,
+    GET_INVOICE_SCHEMA,
 ]
 
 

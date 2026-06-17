@@ -6,12 +6,10 @@ Available API endpoints:
   POST /invoices            — Create a new invoice (query: supplier_id required, body: po_id, amount, due_date, currency)
 """
 
-import os
-import httpx
+from typing import Optional
+import agent.api_client as api_client
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
-# TEMPLATE: Update accordingly
 GET_INVOICES_SCHEMA = {
     "type": "function",
     "name": "get_invoices",
@@ -19,23 +17,62 @@ GET_INVOICES_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "print_string": {
+            "status": {
                 "type": "string",
-                "description": "This parameter will be printed to the console.",
+                "enum": ["pending", "paid", "overdue"],
+                "description": "Filter invoices by payment status.",
+            },
+            "overdue": {
+                "type": "boolean",
+                "description": "Filter to show only overdue invoices.",
+            },
+            "min_amount": {
+                "type": "number",
+                "description": "Minimum invoice amount to filter by.",
+            },
+            "max_amount": {
+                "type": "number",
+                "description": "Maximum invoice amount to filter by.",
             },
         },
         "required": [],
     },
 }
 
-# TEMPLATE: Update accordingly
-def get_invoices(print_string: str) -> str: 
-    """Fetch invoices from the procurement API, optionally filtered."""
-    
-    # TEMPLATE: Update accordingly
-    print(f"Printing: {print_string}")
 
-    ## NOT SAFE: RETURNS INVOICES FOR ALL SUPPLIERS. 
-    response = httpx.get(f"{API_BASE_URL}/invoices", params={}) # This must be updated
-    response.raise_for_status()
-    return response.text
+GET_INVOICE_SCHEMA = {
+    "type": "function",
+    "name": "get_invoice",
+    "description": "Retrieve a single invoice by its ID.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "invoice_id": {
+                "type": "integer",
+                "description": "The unique identifier of the invoice to retrieve.",
+            },
+        },
+        "required": ["invoice_id"],
+    },
+}
+
+
+def get_invoices(
+    status: Optional[str] = None,
+    overdue: Optional[bool] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+) -> str:
+    """Fetch invoices from the procurement API, optionally filtered."""
+    params = {
+        "status": status,
+        "overdue": overdue,
+        "min_amount": min_amount,
+        "max_amount": max_amount,
+    }
+    return api_client.get("/invoices", params=params)
+
+
+def get_invoice(invoice_id: int) -> str:
+    """Fetch a single invoice by ID from the procurement API."""
+    return api_client.get(f"/invoices/{invoice_id}")
