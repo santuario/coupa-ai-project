@@ -3,6 +3,14 @@
 import json
 from typing import Callable
 
+
+from agent.skills import (
+    GET_AR_STATUS_SCHEMA,
+    GET_DELIVERED_POS_WITHOUT_PAID_INVOICE_SCHEMA,
+    get_ar_status,
+    get_delivered_pos_without_paid_invoice,
+)
+
 from agent.procurement_tools.invoices import (
     GET_INVOICES_SCHEMA,
     GET_INVOICE_SCHEMA,
@@ -37,6 +45,8 @@ TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "acknowledge_purchase_order": acknowledge_purchase_order,
     "get_contracts": get_contracts,
     "get_overdue_summary": get_overdue_summary,
+    "get_ar_status": get_ar_status,
+    "get_delivered_pos_without_paid_invoice": get_delivered_pos_without_paid_invoice,
 }
 
 TOOL_SCHEMAS: list[dict] = [
@@ -48,8 +58,9 @@ TOOL_SCHEMAS: list[dict] = [
     ACKNOWLEDGE_PURCHASE_ORDER_SCHEMA,
     GET_CONTRACTS_SCHEMA,
     GET_OVERDUE_SUMMARY_SCHEMA,
+    GET_AR_STATUS_SCHEMA,
+    GET_DELIVERED_POS_WITHOUT_PAID_INVOICE_SCHEMA,
 ]
-
 
 
 def execute_tool_call(tool_call, registry: dict[str, Callable[..., str]] = TOOL_REGISTRY) -> str:

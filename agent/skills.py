@@ -14,10 +14,37 @@ Rules:
 from __future__ import annotations
 
 import json
+from datetime import date 
 from typing import Any
 
 import agent.api_client as api_client
 
+# --- Skill schemas (OpenAI function format) ---
+
+GET_AR_STATUS_SCHEMA = {
+    "type": "function",
+    "name": "get_ar_status",
+    "description": (
+        "Comprehensive accounts-receivable status for the active supplier: invoices "
+        "grouped by status with totals, overdue aging buckets, active and "
+        "pending-renewal contract counts, unacknowledged PO count, and recommended "
+        "follow-ups. Use for account-health, 'what should I follow up on', "
+        "'what needs attention', or general AR overview questions."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
+
+GET_DELIVERED_POS_WITHOUT_PAID_INVOICE_SCHEMA = {
+    "type": "function",
+    "name": "get_delivered_pos_without_paid_invoice",
+    "description": (
+        "Find purchase orders for the active supplier that have a delivery date but "
+        "no corresponding paid invoice. Use for 'which delivered orders haven't been "
+        "paid', 'what deliveries are awaiting payment', or similar reconciliation "
+        "questions."
+    ),
+    "parameters": {"type": "object", "properties": {}, "required": []},
+}
 
 def get_ar_status() -> str:
     """Get comprehensive accounts receivable status for the active supplier.
@@ -50,12 +77,29 @@ def get_ar_status() -> str:
         
         invoices = invoices_data if isinstance(invoices_data, list) else []
         
-        # Group invoices by status
+        # Group invoices by status, using the same "effective overdue" definition
+        # as /analytics/overdue-summary: an invoice is overdue if its status is
+        # "overdue" OR it's "pending" with a due_date already in the past.
+        # A pending invoice past its due date is functionally overdue even if the
+        # source system hasn't flipped its status yet.
+        today = date.today()
         status_breakdown: dict[str, list[Any]] = {"pending": [], "paid": [], "overdue": []}
         for inv in invoices:
             status = inv.get("status", "").lower()
-            if status in status_breakdown:
-                status_breakdown[status].append(inv)
+            due_raw = inv.get("due_date")
+            is_past_due = False
+            if due_raw:
+                try:
+                    is_past_due = date.fromisoformat(due_raw) < today
+                except (ValueError, TypeError):
+                    is_past_due = False
+
+            if status == "overdue" or (status == "pending" and is_past_due):
+                status_breakdown["overdue"].append(inv)
+            elif status == "pending":
+                status_breakdown["pending"].append(inv)
+            elif status == "paid":
+                status_breakdown["paid"].append(inv)
         
         # Calculate summary by status
         for status, inv_list in status_breakdown.items():

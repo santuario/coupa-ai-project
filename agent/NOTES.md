@@ -1,6 +1,6 @@
 # Task Journal - Supplier AR Agent
 
-Status: ✅ STAGE 1 COMPLETE - All Tools Implemented & Registered
+Status: ✅ STAGES 1-5 COMPLETE - Tools, Skills, Traces, Evals. Skills registered. Overdue definition unified.
 Active supplier for walkthrough: Acme Technology Solutions (SUPPLIER_ID=1)
 
 ## Intent
@@ -502,7 +502,11 @@ Also added:
 
 #### Remaining limits
 **Functionality gaps**:
-- [ ] Skills are not yet registered as tools (can be called by model if registered)
+- [x] Skills registered as callable tools in TOOL_REGISTRY and TOOL_SCHEMAS.
+      Both get_ar_status and get_delivered_pos_without_paid_invoice are now
+      live and invoked by the model. Verified via manual prompts:
+      "how is my account doing?" -> get_ar_status
+      "which delivered orders haven't been paid?" -> get_delivered_pos_without_paid_invoice
 - [ ] No multi-step workflows (e.g., "acknowledge all submitted POs and create invoices")
 - [ ] No date-based filtering in skills (e.g., "overdue invoices from last month")
 - [ ] No currency conversion or multi-currency aggregation
@@ -1020,6 +1024,68 @@ python -m evals.run_evals
 ✅ Writes pass/fail JSON report to evals/results.json
 ✅ Preserves raw Responses API usage (no frameworks)
 ✅ Provides detailed console output with ✅/❌ indicators
+
+
+## Post-Stage Hardening (Day-2 fixes during walkthrough)
+
+### ✅ FIXED: Skills were dead code — now registered
+**Issue**: get_ar_status and get_delivered_pos_without_paid_invoice existed in
+skills.py but had no OpenAI function schema and were never imported into tools.py.
+The model could not call them, so the SYSTEM_PROMPT guidance pointing at them
+referenced tools that weren't actually exposed.
+
+**Fix**:
+- Added GET_AR_STATUS_SCHEMA and GET_DELIVERED_POS_WITHOUT_PAID_INVOICE_SCHEMA
+  to skills.py (no-parameter schemas; the model decides WHEN to call, the skill
+  controls WHAT it does deterministically).
+- Imported both schemas and functions into tools.py and registered them in
+  TOOL_REGISTRY and TOOL_SCHEMAS.
+- Resolved a ruff F811 (duplicate import of the analytics module) introduced
+  while wiring the skill imports.
+
+**Result**: 10 tools/skills now exposed to the agent. Both skills confirmed
+invoked via manual prompts.
+
+### ✅ FIXED: Two conflicting definitions of "overdue" in get_ar_status
+**Issue**: The agent itself surfaced an inconsistency in its account-health
+answer — invoices_by_status showed 2 overdue, while overdue_summary (from
+/analytics/overdue-summary) showed 5. Not a calculation bug: two different
+definitions of overdue.
+- invoices_by_status grouped on the literal invoice.status field ("overdue" only).
+- The analytics endpoint defines overdue as: status == "overdue" OR
+  (status == "pending" AND due_date < today).
+
+**Root cause confirmed by reading the data**: today is 2026, and all pending
+invoices in the Acme dataset have 2025 due_dates, so they are all past due.
+Under the analytics definition they count as overdue (2 marked + 3 past-due
+pending = 5, totaling $59,900).
+
+**Decision (unify on the analytics definition)**: A pending invoice past its
+due date is functionally overdue regardless of whether the source system flipped
+the status flag. For an AR agent whose job is helping a supplier get paid,
+catching that is the point. Updated get_ar_status to group invoices using the
+same rule as /analytics/overdue-summary.
+
+**Implementation**: added `from datetime import date`; in the grouping loop an
+invoice goes into "overdue" if status == "overdue" OR (status == "pending" AND
+date.fromisoformat(due_date) < date.today()), with a try/except guarding the
+date parse.
+
+**Result**: status breakdown and aging summary now agree (5 overdue, $59,900).
+The agent no longer reports an internal inconsistency.
+
+**Note for the walkthrough conversation**: this is a good example of reading the
+API's semantics rather than assuming. The agent flagging the discrepancy itself
+also validates that traces + the model surface real inconsistencies instead of
+hiding them.
+
+### Outstanding before final submission
+- [ ] Run evals/run_evals.py end-to-end and inspect results.json.
+- [ ] Watch for false negatives on refuse questions: a correct refusal that names
+      the out-of-tenant supplier (e.g. "I can't access SteelWorks data") would trip
+      a forbidden_terms check on the supplier name. If so, key refusal assertions on
+      leaked DATA (amounts, invoice IDs) rather than the supplier name itself.
+- [ ] README with run instructions + Decisions & Tradeoffs section.
 
 ## Next Steps - Stage 6 Planning
 - [ ] Run evaluation harness and analyze results
