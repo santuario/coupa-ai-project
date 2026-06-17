@@ -1,12 +1,15 @@
 """Minimal supplier agent using the OpenAI Responses API."""
 
+import json
 import os
+import time
 
 from dotenv import load_dotenv
 from openai import DefaultHttpxClient, OpenAI
 
-from agent.config import OPENAI_MODEL, SUPPLIER_NAME
+from agent.config import OPENAI_MODEL, SUPPLIER_NAME, SUPPLIER_ID, TRACE_PATH
 from agent.tools import TOOL_SCHEMAS, TOOL_REGISTRY, execute_tool_call
+from agent.tracing import write_trace
 
 load_dotenv()
 
@@ -35,7 +38,12 @@ Tool selection guidance:
 """
 
 def run_agent_loop():
-    conversation = [{"role": "developer", "content": SYSTEM_PROMPT}]
+    # Keep developer prompt separate for context window hygiene
+    developer_prompt = {"role": "developer", "content": SYSTEM_PROMPT}
+    conversation = [developer_prompt]
+    
+    # Maximum conversation history to keep (excluding developer prompt)
+    MAX_HISTORY_TURNS = 20
 
     print("Supplier AR Agent (type 'quit' to exit)")
     print("-" * 40)
@@ -45,8 +53,15 @@ def run_agent_loop():
         if not user_input or user_input.lower() in ("quit", "exit"):
             break
 
+        # Start timing for this turn
+        turn_start_time = time.time()
+        
+        # Track tool calls for this turn
+        turn_tool_calls = []
+        
         conversation.append({"role": "user", "content": user_input})
 
+        # Tool execution loop
         while True:
             response = client.responses.create(
                 model=OPENAI_MODEL,
@@ -59,6 +74,20 @@ def run_agent_loop():
                 if item.type == "function_call":
                     has_tool_calls = True
                     result = execute_tool_call(item, TOOL_REGISTRY)
+                    
+                    # Track this tool call for tracing
+                    try:
+                        args = json.loads(item.arguments) if item.arguments else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    
+                    turn_tool_calls.append({
+                        "name": item.name,
+                        "arguments": args,
+                        "output": result,
+                        "status": "success",
+                    })
+                    
                     conversation.append(item)
                     conversation.append(
                         {"type": "function_call_output", "call_id": item.call_id, "output": result}
@@ -67,8 +96,33 @@ def run_agent_loop():
             if not has_tool_calls:
                 break
 
+        # Calculate elapsed time
+        elapsed_ms = (time.time() - turn_start_time) * 1000
+        
+        # Display response
         print(f"\nAssistant: {response.output_text}")
         conversation.append({"role": "assistant", "content": response.output_text})
+        
+        # Write trace for this turn
+        try:
+            write_trace(
+                trace_path=TRACE_PATH,
+                model=OPENAI_MODEL,
+                active_supplier_name=SUPPLIER_NAME,
+                user_message=user_input,
+                tool_calls=turn_tool_calls,
+                final_answer=response.output_text,
+                elapsed_ms=elapsed_ms,
+                active_supplier_id=SUPPLIER_ID,
+            )
+        except Exception as e:
+            print(f"[Warning: Failed to write trace: {e}]")
+        
+        # Context window hygiene: keep developer prompt + recent history
+        # Remove oldest user/assistant pairs if we exceed the limit
+        if len(conversation) > (MAX_HISTORY_TURNS * 2 + 1):  # +1 for developer prompt
+            # Keep developer prompt (index 0) and remove oldest user/assistant pair
+            conversation = [conversation[0]] + conversation[3:]
 
 
 if __name__ == "__main__":

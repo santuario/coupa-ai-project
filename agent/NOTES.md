@@ -535,10 +535,224 @@ Also added:
 ✅ Passes mypy type checking and Python syntax validation
 ✅ Security invariants maintained (all API calls scoped to SUPPLIER_ID)
 
-## Next Steps - Stage 3 Planning
+## Stage 3 - Tracing Infrastructure Implementation
+
+### ✅ COMPLETED: agent/tracing.py
+**Purpose**: Lightweight JSONL trace writing for agent conversation turns with tenant guard security checks
+
+**Implementation**:
+Core tracing module with three main functions:
+
+1. **write_trace(trace_path, model, active_supplier_name, user_message, tool_calls, final_answer, elapsed_ms, active_supplier_id)**
+   - Writes one JSON object per conversation turn to JSONL file
+   - Automatically creates trace directory if it doesn't exist
+   - Includes comprehensive turn data:
+     - timestamp (UTC ISO format)
+     - model name
+     - active_supplier_name
+     - user_message
+     - tool_calls (list with name, arguments, output_summary, status)
+     - tenant_guard (security check results)
+     - final_answer
+     - elapsed_ms
+   - Runs tenant guard checks on all tool calls
+   - Summarizes outputs to avoid storing full sensitive data
+
+2. **check_tenant_guard(tool_calls, active_supplier_id)**
+   - Analyzes tool calls for tenant isolation violations
+   - Enforces three strict rules:
+     - **RULE 1**: supplier_id must NOT be in arguments (application enforces scope)
+     - **RULE 2**: All output records must have supplier_id == active_supplier_id
+     - **RULE 3**: Parsing failures recorded as "UNKNOWN", not pass
+   - Returns TenantGuardTrace with:
+     - supplier_id_in_args: bool
+     - cross_tenant_records_seen: bool
+     - notes: list[str] with detailed violation messages
+   - Reports ALL violations, not just first one
+   - Distinguishes between VIOLATION (security issue) and UNKNOWN (parsing issue)
+
+3. **read_traces(trace_path)**
+   - Reads all traces from JSONL file
+   - Returns list of ConversationTurnTrace objects
+   - Handles missing files gracefully
+
+**Helper functions**:
+- **summarize_output(output, max_length=200)**: Creates summaries of tool outputs
+  - Lists: "[List with N items]"
+  - Dicts: "{Dict with keys: key1, key2, ...}"
+  - Long strings: Truncated with "..."
+  - Avoids storing full sensitive raw data
+
+- **ensure_trace_directory(trace_path)**: Automatic directory creation with parents=True
+
+**Security features**:
+- No full sensitive outputs stored - only summaries
+- Tenant guard checks run automatically on every turn
+- Detects supplier_id in arguments (violation)
+- Validates all output records match active supplier_id
+- Flags unparseable outputs as UNKNOWN
+- Does not block execution - only records findings
+
+**TypedDict schemas**:
+- ToolCallTrace: name, arguments, output_summary, status
+- TenantGuardTrace: supplier_id_in_args, cross_tenant_records_seen, notes
+- ConversationTurnTrace: Complete turn data structure
+
+### ✅ COMPLETED: agent/main.py tracing integration
+**Changes**:
+- Imported write_trace from agent.tracing
+- Imported SUPPLIER_ID and TRACE_PATH from agent.config
+- Added timing tracking: turn_start_time and elapsed_ms calculation
+- Added tool call collection: turn_tool_calls list tracks all tool calls in a turn
+- Added trace writing after each turn completes
+- Added graceful error handling for trace writing failures
+- Preserved raw Responses API loop (no framework, no Chat Completions)
+- Added context window hygiene:
+  - Keeps developer prompt separate
+  - Maintains last 20 conversation turns (40 messages)
+  - Automatically prunes oldest messages when limit exceeded
+  - Formula: MAX_HISTORY_TURNS * 2 + 1 (for developer prompt)
+
+**Integration flow**:
+1. User enters message
+2. Timer starts (turn_start_time)
+3. Tool execution loop runs (original behavior preserved)
+4. Each tool call tracked with name, arguments, output, status
+5. Final answer displayed to user
+6. Elapsed time calculated in milliseconds
+7. write_trace() called with all turn data
+8. Tenant guard checks run automatically
+9. Trace written to JSONL file
+10. Old conversation history pruned if needed
+11. Loop continues
+
+**Error handling**:
+- Trace writing wrapped in try/except
+- Failures print warning but don't crash agent
+- Terminal output remains clean and readable
+
+### ✅ COMPLETED: agent/test_tracing.py
+**Purpose**: Comprehensive test suite for tracing module
+
+**Test coverage**:
+1. **test_summarize_output()**: Tests output summarization
+   - JSON lists → "[List with N items]"
+   - JSON dicts → "{Dict with keys: ...}"
+   - Long strings → Truncated with "..."
+
+2. **test_tenant_guard()**: Tests tenant guard with new rules (6 scenarios)
+   - supplier_id in arguments → VIOLATION (even if correct)
+   - No supplier_id in arguments, correct output → PASS
+   - Cross-tenant data in output → VIOLATION
+   - Multiple violations in list → Reports all violations
+   - Parsing failure → UNKNOWN
+   - Empty output → PASS
+
+3. **test_write_and_read_trace()**: Tests JSONL writing and reading
+   - Writes trace to temporary directory
+   - Verifies file creation
+   - Reads trace back and validates all fields
+   - Tests multiple traces in same file
+
+4. **test_directory_creation()**: Tests automatic directory creation
+   - Uses deeply nested path that doesn't exist
+   - Verifies directories created automatically
+
+**Test results**: ✅ All tests pass
+
+### 🔒 Tenant Guard Security Rules
+
+**RULE 1: supplier_id must NOT be in arguments**
+- Rationale: Application enforces scope via api_client.py, not tool parameters
+- Violation: Any tool call with supplier_id in arguments
+- Detection: Checks all tool call arguments for "supplier_id" key
+- Message: "VIOLATION: Tool 'X' has supplier_id in arguments. Application should enforce scope, not pass supplier_id explicitly."
+
+**RULE 2: All output records must match active supplier_id**
+- Rationale: Prevents cross-tenant data leakage in API responses
+- Violation: Any record with supplier_id != active_supplier_id
+- Detection: Parses JSON outputs (dicts and lists), checks all supplier_id fields
+- Message: "VIOLATION: Tool 'X' returned record with supplier_id=Y, expected Z"
+- Reports ALL violations, not just first one
+
+**RULE 3: Parsing failures recorded as UNKNOWN**
+- Rationale: Unparseable outputs cannot be verified for tenant isolation
+- Status: UNKNOWN (not pass, not violation)
+- Detection: JSON parsing exceptions (JSONDecodeError, TypeError)
+- Message: "UNKNOWN: Tool 'X' output could not be parsed as JSON. Cannot verify tenant isolation. Error: JSONDecodeError"
+
+**Non-blocking design**:
+- Tenant guard does NOT block execution
+- Only records findings in traces
+- Allows post-hoc security analysis
+- Enables evaluation of tenant isolation effectiveness
+
+### 📊 Trace Format (JSONL)
+
+Each line in the trace file is a JSON object with this structure:
+```json
+{
+  "timestamp": "2026-06-17T07:24:00.123456+00:00",
+  "model": "gpt-5.4",
+  "active_supplier_name": "Acme Technology Solutions",
+  "user_message": "Show me pending invoices",
+  "tool_calls": [
+    {
+      "name": "get_invoices",
+      "arguments": {"status": "pending"},
+      "output_summary": "[List with 3 items]",
+      "status": "success"
+    }
+  ],
+  "tenant_guard": {
+    "supplier_id_in_args": false,
+    "cross_tenant_records_seen": false,
+    "notes": []
+  },
+  "final_answer": "You have 3 pending invoices...",
+  "elapsed_ms": 1234.56
+}
+```
+
+**Key properties**:
+- One JSON object per line (JSONL format)
+- Parseable with standard JSON libraries
+- Lightweight (summaries, not full outputs)
+- Includes security audit trail (tenant_guard)
+- Timestamped with UTC timezone
+- Tracks performance (elapsed_ms)
+
+### 🎯 Stage 3 Success Criteria - MET
+✅ Created agent/tracing.py with JSONL trace writing
+✅ Implemented write_trace() with automatic directory creation
+✅ Implemented check_tenant_guard() with strict security rules
+✅ Implemented summarize_output() to avoid storing sensitive data
+✅ Integrated tracing into agent/main.py
+✅ Preserved raw Responses API loop (no framework changes)
+✅ Added timing tracking (elapsed_ms)
+✅ Added tool call collection per turn
+✅ Added context window hygiene (20 turn limit)
+✅ Created comprehensive test suite (agent/test_tracing.py)
+✅ All tests pass successfully
+✅ Fixed linting issues (removed unused imports)
+✅ Terminal output remains clean and readable
+✅ Trace writing failures don't crash agent
+
+### 🔧 Configuration
+**Environment variables**:
+- TRACE_PATH: Path to JSONL trace file (default: "evals/traces/agent_traces.jsonl")
+- Configured in agent/config.py
+- Used by agent/main.py for trace writing
+
+**Context window settings**:
+- MAX_HISTORY_TURNS = 20 (configurable in agent/main.py)
+- Keeps developer prompt + last 20 user/assistant pairs
+- Total messages: 41 (1 developer + 40 conversation)
+
+## Next Steps - Stage 4 Planning
 - [ ] Register skills as tools in TOOL_REGISTRY and TOOL_SCHEMAS (optional)
 - [ ] Implement automated testing (unit tests for skills and tools)
 - [ ] Add cross-tenant isolation tests
 - [ ] Build multi-step workflow capabilities
-- [ ] Implement tracing infrastructure (JSONL logging)
-- [ ] Build evaluation harness
+- [ ] Build evaluation harness using traces
+- [ ] Add trace analysis tools (violation detection, performance metrics)
