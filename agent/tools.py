@@ -9,15 +9,29 @@ from agent.procurement_tools.invoices import (
     get_invoices,
     get_invoice,
 )
+from agent.procurement_tools.purchase_orders import (
+    GET_PURCHASE_ORDERS_SCHEMA,
+    GET_PURCHASE_ORDER_SCHEMA,
+    ACKNOWLEDGE_PURCHASE_ORDER_SCHEMA,
+    get_purchase_orders,
+    get_purchase_order,
+    acknowledge_purchase_order,
+)
 
 TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "get_invoices": get_invoices,
     "get_invoice": get_invoice,
+    "get_purchase_orders": get_purchase_orders,
+    "get_purchase_order": get_purchase_order,
+    "acknowledge_purchase_order": acknowledge_purchase_order,
 }
 
 TOOL_SCHEMAS: list[dict] = [
     GET_INVOICES_SCHEMA,
     GET_INVOICE_SCHEMA,
+    GET_PURCHASE_ORDERS_SCHEMA,
+    GET_PURCHASE_ORDER_SCHEMA,
+    ACKNOWLEDGE_PURCHASE_ORDER_SCHEMA,
 ]
 
 

@@ -171,8 +171,53 @@ Two tools following OpenAI function schema dict style:
 - Added GET_INVOICE_SCHEMA to TOOL_SCHEMAS
 - Both invoice tools now available to the agent
 
+### ✅ COMPLETED: agent/procurement_tools/purchase_orders.py
+**Purpose**: Purchase order retrieval and acknowledgment tools with proper supplier scoping
+
+**Implementation**:
+Three tools following OpenAI function schema dict style:
+
+1. **get_purchase_orders(status?, created_after?, created_before?, min_amount?)**
+   - Optional parameters for filtering purchase orders
+   - status: enum ["submitted", "acknowledged"]
+   - created_after/created_before: date string filters (format: YYYY-MM-DD)
+   - min_amount: numeric minimum amount filter
+   - Uses `api_client.get("/purchase-orders", params=params)` for automatic SUPPLIER_ID injection
+   - Returns JSON string
+
+2. **get_purchase_order(po_id: int)**
+   - Required po_id parameter
+   - Uses `api_client.get(f"/purchase-orders/{po_id}")` for automatic SUPPLIER_ID injection
+   - Returns JSON string
+
+3. **acknowledge_purchase_order(po_id: int)**
+   - Required po_id parameter
+   - Uses `api_client.post(f"/purchase-orders/{po_id}/acknowledge")` for automatic SUPPLIER_ID injection
+   - Transitions PO status from 'submitted' to 'acknowledged'
+   - Returns JSON string with updated PO or error details
+
+**Security features**:
+- No supplier_id in tool schemas (enforced by api_client)
+- All API calls automatically scoped to configured SUPPLIER_ID
+- Uses agent.api_client for consistent error handling
+- POST endpoint properly calls /purchase-orders/{po_id}/acknowledge
+
+**Schema style**:
+- Preserved raw OpenAI function schema dict format
+- Type definitions: "string", "number", "integer"
+- Enum constraints for status field
+- Clear descriptions for each parameter
+
+### ✅ COMPLETED: agent/tools.py updates (purchase orders)
+**Changes**:
+- Imported GET_PURCHASE_ORDERS_SCHEMA, GET_PURCHASE_ORDER_SCHEMA, ACKNOWLEDGE_PURCHASE_ORDER_SCHEMA from purchase_orders module
+- Imported get_purchase_orders, get_purchase_order, acknowledge_purchase_order functions
+- Registered all three purchase order functions in TOOL_REGISTRY
+- Added all three purchase order schemas to TOOL_SCHEMAS
+- All purchase order tools now available to the agent
+
 ## Next Steps
-- [ ] Implement remaining Stage 1 tools using api_client (purchase_orders, contracts, etc.)
+- [ ] Implement remaining Stage 1 tools using api_client (contracts, overdue_summary, etc.)
 - [ ] Test supplier isolation with cross-tenant queries
 - [ ] Implement Stage 2 skills (multi-step workflows)
 - [ ] Add Stage 3 tracing infrastructure
