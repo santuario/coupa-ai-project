@@ -398,10 +398,147 @@ def post(path: str, *, params: dict[str, Any] | None = None, json_body: dict[str
 ✅ Security invariants maintained (LLM never controls supplier_id)
 ✅ Only API-supported write operations exposed (create_invoice, acknowledge_purchase_order)
 
-## Next Steps - Stage 2 Planning
-- [ ] Implement automated testing (unit tests for each tool)
+## Stage 2 - Deterministic Skills Implementation
+
+### ✅ COMPLETED: agent/skills.py
+**Purpose**: High-level deterministic helper functions for complex AR queries
+
+**Implementation**:
+Two skills that aggregate multiple API calls and provide deterministic business logic:
+
+1. **get_ar_status()**
+   - Aggregates data from multiple endpoints: /invoices, /analytics/overdue-summary, /contracts, /purchase-orders
+   - Returns comprehensive AR status including:
+     - invoices_by_status: breakdown of counts and amounts by status (pending, paid, overdue)
+     - overdue_summary: aging buckets from analytics API
+     - active_contracts: count of active contracts
+     - pending_contracts: count of contracts pending renewal
+     - submitted_pos: count of unacknowledged POs
+     - recommended_followups: deterministic list of recommended actions
+   - Deterministic logic: no LLM reasoning, pure data aggregation
+   - Error handling: gracefully handles API failures, returns JSON error objects
+
+2. **get_delivered_pos_without_paid_invoice()**
+   - Identifies POs with delivery_date but no corresponding paid invoice
+   - Cross-references acknowledged POs with all invoices
+   - Returns PO details with invoice status context
+   - Helps identify delivered goods/services that haven't been invoiced or paid
+   - Includes summary with total count and amount
+
+**Security features**:
+- No supplier_id arguments - uses scoped api_client exclusively
+- All API calls automatically scoped to configured SUPPLIER_ID
+- Returns JSON strings for consistent tool integration
+- Type-safe with mypy annotations
+
+### ✅ COMPLETED: Updated SYSTEM_PROMPT in agent/main.py
+**Changes**:
+Added tool selection guidance to prefer high-level skills for ambiguous queries:
+
+```
+Tool selection guidance:
+- For exact invoice or PO lookups (e.g., "show me invoice 1001"), use get_invoice or get_purchase_order.
+- For account health questions (e.g., "how is my account?", "what's my AR status?"), use get_ar_status.
+- For follow-up questions (e.g., "what should I follow up on?", "what needs attention?"), use get_ar_status.
+- For delivered POs without payment (e.g., "which delivered orders haven't been paid?"), use get_delivered_pos_without_paid_invoice.
+- For cross-supplier named questions (e.g., "show me SteelWorks invoices"), refuse politely and scope to the active supplier only.
+```
+
+Also added:
+- "Do not reveal internal supplier_id values unless needed for debugging."
+
+### 🎯 Stage 2 Design Decisions
+
+#### Which logic lives in skills instead of the model?
+**Skills (deterministic Python):**
+- Multi-endpoint data aggregation (get_ar_status fetches from 4 endpoints)
+- Business logic for recommended follow-ups (deterministic rules based on counts)
+- Cross-referencing data (matching POs with invoices by po_id)
+- Filtering and grouping (invoices by status, POs with delivery dates)
+- Summary calculations (totals, counts, amounts)
+
+**Model (LLM reasoning):**
+- Natural language understanding of user intent
+- Deciding which tool/skill to call based on the query
+- Synthesizing tool outputs into conversational responses
+- Handling ambiguous or multi-step questions
+- Explaining results in user-friendly language
+
+**Rationale**: Deterministic logic in Python is faster, more reliable, and easier to test than LLM reasoning. The model focuses on language understanding and synthesis, not data processing.
+
+#### How get_ar_status avoids broad analytics leakage
+**Security measures**:
+1. **Scoped API calls**: All endpoints called with scoped=True, injecting SUPPLIER_ID
+2. **No cross-supplier aggregation**: Only fetches data for the active supplier
+3. **Deliberate endpoint selection**: Uses /analytics/overdue-summary (scoped) instead of /analytics/spend-by-supplier (unscoped)
+4. **No supplier_id parameter**: Function signature has no supplier_id argument, preventing model control
+5. **Deterministic filtering**: All grouping/filtering happens in Python after scoped API calls
+
+**What it does NOT expose**:
+- Cross-supplier analytics or comparisons
+- Unscoped spend-by-supplier data
+- Other suppliers' invoice/PO/contract data
+- Supplier_id values (unless debugging)
+
+#### Which ambiguous questions it supports
+**Supported queries for get_ar_status**:
+- "How is my account?" → Full AR status with all metrics
+- "What should I follow up on?" → Recommended actions based on data
+- "What needs attention?" → Prioritized follow-ups
+- "Give me an overview of my AR" → Comprehensive status report
+- "What's my account health?" → Status with recommendations
+- "Any urgent items?" → Overdue invoices, submitted POs, pending renewals
+
+**Supported queries for get_delivered_pos_without_paid_invoice**:
+- "Which delivered orders haven't been paid?" → POs with delivery_date but no paid invoice
+- "Show me delivered POs without invoices" → Same as above
+- "What deliveries are awaiting payment?" → Same as above
+- "Find POs that were delivered but not invoiced" → Same as above
+
+**NOT supported (requires exact lookups)**:
+- "Show me invoice 1001" → Use get_invoice instead
+- "What's the status of PO 2003?" → Use get_purchase_order instead
+- "List all pending invoices" → Use get_invoices with status filter instead
+
+#### Remaining limits
+**Functionality gaps**:
+- [ ] Skills are not yet registered as tools (can be called by model if registered)
+- [ ] No multi-step workflows (e.g., "acknowledge all submitted POs and create invoices")
+- [ ] No date-based filtering in skills (e.g., "overdue invoices from last month")
+- [ ] No currency conversion or multi-currency aggregation
+- [ ] No trend analysis or historical comparisons
+
+**Testing gaps**:
+- [ ] No unit tests for skills functions
+- [ ] No integration tests with mock API
+- [ ] No cross-tenant isolation tests for skills
+- [ ] No performance tests for multi-endpoint aggregation
+
+**Error handling gaps**:
+- [ ] No retry logic for transient API failures
+- [ ] No partial success handling (e.g., if one endpoint fails, return partial data)
+- [ ] No timeout configuration for slow API calls
+- [ ] No circuit breaker for repeated failures
+
+**Documentation gaps**:
+- [ ] No inline examples in skill docstrings
+- [ ] No user-facing documentation for supported queries
+- [ ] No runbook for common skill usage patterns
+
+### 🎯 Stage 2 Success Criteria - MET
+✅ Created agent/skills.py with two deterministic helper functions
+✅ get_ar_status aggregates data from 4 endpoints with deterministic follow-up logic
+✅ get_delivered_pos_without_paid_invoice cross-references POs and invoices
+✅ Updated SYSTEM_PROMPT with tool selection guidance
+✅ No supplier_id arguments in skills (uses scoped client)
+✅ Returns JSON strings for consistent tool integration
+✅ Passes mypy type checking and Python syntax validation
+✅ Security invariants maintained (all API calls scoped to SUPPLIER_ID)
+
+## Next Steps - Stage 3 Planning
+- [ ] Register skills as tools in TOOL_REGISTRY and TOOL_SCHEMAS (optional)
+- [ ] Implement automated testing (unit tests for skills and tools)
 - [ ] Add cross-tenant isolation tests
 - [ ] Build multi-step workflow capabilities
-- [ ] Add deterministic Python skills for account health
-- [ ] Implement Stage 3 tracing infrastructure (JSONL logging)
-- [ ] Build Stage 4 evaluation harness
+- [ ] Implement tracing infrastructure (JSONL logging)
+- [ ] Build evaluation harness
