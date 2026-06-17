@@ -17,6 +17,14 @@ from agent.procurement_tools.purchase_orders import (
     get_purchase_order,
     acknowledge_purchase_order,
 )
+from agent.procurement_tools.contracts import (
+    GET_CONTRACTS_SCHEMA,
+    get_contracts,
+)
+from agent.procurement_tools.analytics import (
+    GET_OVERDUE_SUMMARY_SCHEMA,
+    get_overdue_summary,
+)
 
 TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "get_invoices": get_invoices,
@@ -24,6 +32,8 @@ TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "get_purchase_orders": get_purchase_orders,
     "get_purchase_order": get_purchase_order,
     "acknowledge_purchase_order": acknowledge_purchase_order,
+    "get_contracts": get_contracts,
+    "get_overdue_summary": get_overdue_summary,
 }
 
 TOOL_SCHEMAS: list[dict] = [
@@ -32,6 +42,8 @@ TOOL_SCHEMAS: list[dict] = [
     GET_PURCHASE_ORDERS_SCHEMA,
     GET_PURCHASE_ORDER_SCHEMA,
     ACKNOWLEDGE_PURCHASE_ORDER_SCHEMA,
+    GET_CONTRACTS_SCHEMA,
+    GET_OVERDUE_SUMMARY_SCHEMA,
 ]
 
 

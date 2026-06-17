@@ -216,8 +216,64 @@ Three tools following OpenAI function schema dict style:
 - Added all three purchase order schemas to TOOL_SCHEMAS
 - All purchase order tools now available to the agent
 
+### ✅ COMPLETED: agent/procurement_tools/contracts.py
+**Purpose**: Contract retrieval tools with proper supplier scoping
+
+**Implementation**:
+One tool following OpenAI function schema dict style:
+
+1. **get_contracts(status?, expiring_within_days?)**
+   - Optional parameters for filtering contracts
+   - status: enum ["active", "expired", "pending_renewal"]
+   - expiring_within_days: integer filter for contracts expiring within N days
+   - Uses `api_client.get("/contracts", params=params)` for automatic SUPPLIER_ID injection
+   - Returns JSON string
+
+**Security features**:
+- No supplier_id in tool schema (enforced by api_client)
+- All API calls automatically scoped to configured SUPPLIER_ID
+- Uses agent.api_client for consistent error handling
+
+**Schema style**:
+- Preserved raw OpenAI function schema dict format
+- Type definitions: "string", "integer"
+- Enum constraints for status field
+- Clear descriptions for each parameter
+
+### ✅ COMPLETED: agent/procurement_tools/analytics.py
+**Purpose**: Analytics tools with proper supplier scoping - deliberately limited to prevent unscoped broad analytics
+
+**Implementation**:
+One tool following OpenAI function schema dict style:
+
+1. **get_overdue_summary()**
+   - No parameters - automatically scoped to configured SUPPLIER_ID
+   - Returns overdue invoice summary with aging buckets (1-30, 31-60, 61-90, 90+ days)
+   - Uses `api_client.get("/analytics/overdue-summary")` for automatic SUPPLIER_ID injection
+   - Returns JSON string with total_overdue_amount, total_overdue_count, and aging_buckets
+
+**Security features**:
+- No supplier_id in tool schema (enforced by api_client)
+- All API calls automatically scoped to configured SUPPLIER_ID
+- Deliberately excludes spend-by-supplier endpoint to prevent unscoped broad analytics
+- Only scoped analytics exposed to the agent
+
+**Design decision**:
+- spend-by-supplier endpoint exists in API but is NOT exposed as a tool
+- This prevents the agent from accessing unscoped cross-supplier analytics
+- Keeps analytics focused on the active supplier's data only
+
+### ✅ COMPLETED: agent/tools.py updates (contracts and analytics)
+**Changes**:
+- Imported GET_CONTRACTS_SCHEMA and get_contracts from contracts module
+- Imported GET_OVERDUE_SUMMARY_SCHEMA and get_overdue_summary from analytics module
+- Registered get_contracts in TOOL_REGISTRY
+- Registered get_overdue_summary in TOOL_REGISTRY
+- Added GET_CONTRACTS_SCHEMA to TOOL_SCHEMAS
+- Added GET_OVERDUE_SUMMARY_SCHEMA to TOOL_SCHEMAS
+- Agent now has 7 total tools available: 2 invoice tools, 3 purchase order tools, 1 contract tool, 1 analytics tool
+
 ## Next Steps
-- [ ] Implement remaining Stage 1 tools using api_client (contracts, overdue_summary, etc.)
 - [ ] Test supplier isolation with cross-tenant queries
 - [ ] Implement Stage 2 skills (multi-step workflows)
 - [ ] Add Stage 3 tracing infrastructure
