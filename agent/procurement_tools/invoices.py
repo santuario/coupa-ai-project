@@ -13,18 +13,29 @@ import agent.api_client as api_client
 GET_INVOICES_SCHEMA = {
     "type": "function",
     "name": "get_invoices",
-    "description": "Retrieve invoices. Use this to check payment statuses, find overdue invoices, or review invoice history.",
+    "description": (
+        "Retrieve invoices for the current supplier. Use this to check payment "
+        "statuses, find past-due invoices, or review invoice history."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "status": {
                 "type": "string",
                 "enum": ["pending", "paid", "overdue"],
-                "description": "Filter invoices by payment status.",
+                "description": (
+                    "Filter by the invoice's exact stored status. Note: 'overdue' "
+                    "here means only invoices explicitly flagged overdue."
+                ),
             },
             "overdue": {
                 "type": "boolean",
-                "description": "Filter to show only overdue invoices.",
+                "description": (
+                    "Set true to get ALL past-due invoices, including pending ones "
+                    "whose due date has passed (not just those flagged 'overdue'). "
+                    "Use this alone for 'what is overdue' questions. Do not combine "
+                    "with status='overdue'."
+                ),
             },
             "min_amount": {
                 "type": "number",
@@ -94,6 +105,15 @@ def get_invoices(
     max_amount: Optional[float] = None,
 ) -> str:
     """Fetch invoices from the procurement API, optionally filtered."""
+    # When overdue=True, the user wants ALL past-due invoices (the broad,
+    # time-aware definition). The API applies status before overdue, so any
+    # status filter sent alongside overdue=True narrows the result to a wrong
+    # subset (e.g. status="pending" drops invoices flagged "overdue";
+    # status="overdue" drops past-due pending ones). The two filters are
+    # semantically incompatible, so overdue=True always wins and we drop status.
+    if overdue is True and status is not None:
+        status = None
+
     params = {
         "status": status,
         "overdue": overdue,

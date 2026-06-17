@@ -1079,6 +1079,24 @@ API's semantics rather than assuming. The agent flagging the discrepancy itself
 also validates that traces + the model surface real inconsistencies instead of
 hiding them.
 
+## FIXED: status + overdue filter incompatibility (Q4/Q10 consistency)
+The model combined a status filter with overdue=true (first status="overdue",
+then status="pending" after the first patch). The API applies status before
+overdue, so ANY status alongside overdue=true narrows to a wrong subset:
+- status="overdue" + overdue=true -> drops past-due pending (gave 2)
+- status="pending" + overdue=true -> drops flagged-overdue invoices (gave 3)
+The correct count is 5 ($59,900).
+
+Root cause: API filter order + the two filters being semantically incompatible.
+Cannot modify api/, so fixed generally in the tool: when overdue=true, drop ANY
+status filter so the broad time-aware definition always wins (not just the
+status="overdue" case). Reinforced the schema to steer the model toward
+overdue=true alone.
+
+Result: get_invoices and get_ar_status agree (5 invoices, $59,900). The guard
+only triggers on overdue=true, so legitimate status filters (e.g. pending in Q5)
+are untouched.
+
 ### Outstanding before final submission
 - [ ] Run evals/run_evals.py end-to-end and inspect results.json.
 - [ ] Watch for false negatives on refuse questions: a correct refusal that names
