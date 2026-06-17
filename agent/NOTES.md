@@ -134,10 +134,10 @@ Tools deliberately not built:
 - requirements include httpx, openai, python-dotenv, ruff, and mypy.
 
 ### ✅ COMPLETED: agent/procurement_tools/invoices.py
-**Purpose**: Invoice retrieval tools with proper supplier scoping
+**Purpose**: Invoice retrieval and creation tools with proper supplier scoping
 
 **Implementation**:
-Two tools following OpenAI function schema dict style:
+Three tools following OpenAI function schema dict style:
 
 1. **get_invoices(status?, overdue?, min_amount?, max_amount?)**
    - Optional parameters for filtering invoices
@@ -152,24 +152,37 @@ Two tools following OpenAI function schema dict style:
    - Uses `api_client.get(f"/invoices/{invoice_id}")` for automatic SUPPLIER_ID injection
    - Returns JSON string
 
+3. **create_invoice(amount: float, due_date: str, po_id?: int, currency?: str)**
+   - Required parameters: amount (number), due_date (string in YYYY-MM-DD format)
+   - Optional parameters: po_id (integer), currency (string, defaults to "USD")
+   - Uses `api_client.post("/invoices", json_body=json_body)` for automatic SUPPLIER_ID injection
+   - Schema-level validation ensures amount and due_date are required
+   - Returns JSON string with created invoice or error details
+
 **Security features**:
 - No supplier_id in tool schemas (enforced by api_client)
 - All API calls automatically scoped to configured SUPPLIER_ID
 - Removed unsafe print_string template parameter
 - Uses agent.api_client instead of direct httpx calls
+- POST endpoint properly injects SUPPLIER_ID through scoped api_client
 
 **Schema style**:
 - Preserved raw OpenAI function schema dict format
 - Type definitions: "string", "boolean", "number", "integer"
 - Enum constraints for status field
 - Clear descriptions for each parameter
+- Required fields enforced at schema level
 
-### ✅ COMPLETED: agent/tools.py updates
+**Design decisions**:
+- No update_invoice or delete_invoice tools (API has no such endpoints)
+- create_invoice follows same scoped pattern as acknowledge_purchase_order
+
+### ✅ COMPLETED: agent/tools.py updates (invoices)
 **Changes**:
-- Imported GET_INVOICE_SCHEMA and get_invoice from invoices module
-- Registered get_invoice in TOOL_REGISTRY
-- Added GET_INVOICE_SCHEMA to TOOL_SCHEMAS
-- Both invoice tools now available to the agent
+- Imported GET_INVOICE_SCHEMA, CREATE_INVOICE_SCHEMA and get_invoice, create_invoice from invoices module
+- Registered get_invoice and create_invoice in TOOL_REGISTRY
+- Added GET_INVOICE_SCHEMA and CREATE_INVOICE_SCHEMA to TOOL_SCHEMAS
+- All three invoice tools now available to the agent
 
 ### ✅ COMPLETED: agent/procurement_tools/purchase_orders.py
 **Purpose**: Purchase order retrieval and acknowledgment tools with proper supplier scoping
@@ -271,7 +284,7 @@ One tool following OpenAI function schema dict style:
 - Registered get_overdue_summary in TOOL_REGISTRY
 - Added GET_CONTRACTS_SCHEMA to TOOL_SCHEMAS
 - Added GET_OVERDUE_SUMMARY_SCHEMA to TOOL_SCHEMAS
-- Agent now has 7 total tools available: 2 invoice tools, 3 purchase order tools, 1 contract tool, 1 analytics tool
+- Agent now has 8 total tools available: 3 invoice tools, 3 purchase order tools, 1 contract tool, 1 analytics tool
 
 ## Next Steps
 - [ ] Test supplier isolation with cross-tenant queries
