@@ -62,3 +62,11 @@ Tools deliberately not built:
 - Mock API has no auth layer; supplier isolation is enforced in the agent only.
 - No persistent database; created invoices reset when the API restarts.
 - Evals use pragmatic assertions, not perfect semantic grading.
+
+## Confirmed pre-coding findings
+- `get_invoices` is unsafe because it calls /invoices with params={}; this returns all suppliers.
+- API supplier filtering is opt-in: supplier_id=None means all records.
+- /suppliers returns all suppliers and has no tenant filter.
+- /suppliers/{id} has no session tenant; only a pinned get_my_supplier_profile is safe.
+- acknowledge_purchase_order returns 404 on wrong supplier due to mismatch fall-through; tool should surface that safely.
+- requirements include httpx, openai, python-dotenv, ruff, and mypy.
