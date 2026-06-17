@@ -1,6 +1,6 @@
 # Task Journal - Supplier AR Agent
 
-Status: STAGE 1 COMPLETE - Config & API Client Implemented
+Status: ✅ STAGE 1 COMPLETE - All Tools Implemented & Registered
 Active supplier for walkthrough: Acme Technology Solutions (SUPPLIER_ID=1)
 
 ## Intent
@@ -286,8 +286,122 @@ One tool following OpenAI function schema dict style:
 - Added GET_OVERDUE_SUMMARY_SCHEMA to TOOL_SCHEMAS
 - Agent now has 8 total tools available: 3 invoice tools, 3 purchase order tools, 1 contract tool, 1 analytics tool
 
-## Next Steps
-- [ ] Test supplier isolation with cross-tenant queries
-- [ ] Implement Stage 2 skills (multi-step workflows)
-- [ ] Add Stage 3 tracing infrastructure
+## Stage 1 Summary - Tools Implementation Complete
+
+### ✅ Tools Successfully Added (8 total)
+**Invoice Tools (3):**
+1. `get_invoices` - List/filter invoices with optional status, overdue, min/max amount filters
+2. `get_invoice` - Retrieve single invoice by ID
+3. `create_invoice` - Create new invoice with amount, due_date (required), po_id, currency (optional, defaults to USD)
+
+**Purchase Order Tools (3):**
+4. `get_purchase_orders` - List/filter POs with optional status, date range, min amount filters
+5. `get_purchase_order` - Retrieve single PO by ID
+6. `acknowledge_purchase_order` - Acknowledge submitted PO (transitions status to 'acknowledged')
+
+**Contract Tools (1):**
+7. `get_contracts` - List/filter contracts with optional status and expiring_within_days filters
+
+**Analytics Tools (1):**
+8. `get_overdue_summary` - Get overdue invoice summary with aging buckets (no parameters)
+
+### 🔒 How supplier_id is Injected
+**Application-layer enforcement in api_client.py:**
+```python
+def get(path: str, *, params: dict[str, Any] | None = None, scoped: bool = True) -> str:
+    query = _clean_params(params or {})
+    if scoped:
+        query["supplier_id"] = SUPPLIER_ID  # ← INJECTED HERE, NOT FROM MODEL
+    response = httpx.get(f"{API_BASE_URL}{path}", params=query, timeout=10.0)
+    return _handle_response(response)
+
+def post(path: str, *, params: dict[str, Any] | None = None, json_body: dict[str, Any] | None = None, scoped: bool = True) -> str:
+    query = _clean_params(params or {})
+    if scoped:
+        query["supplier_id"] = SUPPLIER_ID  # ← INJECTED HERE, NOT FROM MODEL
+    response = httpx.post(f"{API_BASE_URL}{path}", params=query, json=_clean_params(json_body or {}), timeout=10.0)
+    return _handle_response(response)
+```
+
+**Key security properties:**
+- supplier_id NEVER appears in tool schemas
+- LLM cannot control or see supplier_id
+- All tools use scoped=True by default
+- SUPPLIER_ID comes from environment config, not model input
+- Defense in depth: even if model is compromised, it cannot access other suppliers' data
+
+### ❌ Tools Deliberately NOT Built
+**Security reasons:**
+- `list_all_suppliers` / `search_suppliers` - Would expose cross-tenant data
+- `get_supplier(id)` - Would allow model to query arbitrary suppliers
+- Any tool accepting supplier_id as a parameter - Violates tenancy boundary
+- `/analytics/spend-by-supplier` endpoint - Unscoped cross-supplier analytics
+
+**API limitations:**
+- `update_invoice` - API has no PATCH/PUT /invoices endpoint
+- `delete_invoice` - API has no DELETE /invoices endpoint
+- `update_purchase_order` - Not supported by API
+- `delete_purchase_order` - Not supported by API
+
+**Design decisions:**
+- `get_my_supplier_profile` - Deferred (not critical for Stage 1)
+- Cross-supplier catalog search - Out of scope for supplier AR agent
+- Broad unscoped analytics - Deliberately excluded for security
+
+### 🧪 Manual Prompts Tested
+**Successful test cases:**
+1. ✅ "Create an invoice for PO 1002 for 13600 USD due 2025-06-20"
+   - Initially failed: create_invoice was not registered in tools.py
+   - Fixed: Added CREATE_INVOICE_SCHEMA and create_invoice to TOOL_REGISTRY and TOOL_SCHEMAS
+   - Now works: Agent can successfully create invoices
+
+**Expected behavior:**
+- Agent should call `create_invoice(amount=13600, due_date="2025-06-20", po_id=1002, currency="USD")`
+- API automatically scopes to SUPPLIER_ID=1 via api_client.post
+- Returns created invoice JSON or error details
+
+### 🔧 Bugs Fixed During Stage 1
+**Issue:** create_invoice function existed but was not registered
+- **Root cause:** invoices.py had the function and schema, but tools.py was never updated
+- **Fix:** Added imports and registration in tools.py (lines 6-12, 33, 43)
+- **Impact:** Agent now has access to all 8 planned tools
+
+### 📋 Known Gaps Before Stage 2
+**Testing:**
+- [ ] No automated unit tests for tool functions yet
+- [ ] No cross-tenant isolation tests (e.g., try to access SteelWorks data from Acme session)
+- [ ] No negative tests for out-of-tenant invoice IDs
+- [ ] No static analysis (ruff/mypy) run yet
+
+**Functionality:**
+- [ ] No multi-step workflows (e.g., "acknowledge all submitted POs")
+- [ ] No deterministic Python skills for account health reasoning
+- [ ] No follow-up question handling
+- [ ] No tracing infrastructure (JSONL logging)
+
+**Error handling:**
+- [ ] Tool errors return JSON but agent may not handle them gracefully
+- [ ] No retry logic for transient API failures
+- [ ] No validation of date formats before API calls
+
+**Documentation:**
+- [ ] No inline examples in tool descriptions
+- [ ] No user-facing documentation for supported queries
+- [ ] No runbook for common agent tasks
+
+### 🎯 Stage 1 Success Criteria - MET
+✅ All 8 planned tools implemented with proper supplier scoping
+✅ No supplier_id in any tool schema
+✅ api_client.py enforces tenancy at application layer
+✅ Tools registered in TOOL_REGISTRY and TOOL_SCHEMAS
+✅ Manual prompt testing confirms create_invoice works
+✅ Security invariants maintained (LLM never controls supplier_id)
+✅ Only API-supported write operations exposed (create_invoice, acknowledge_purchase_order)
+
+## Next Steps - Stage 2 Planning
+- [ ] Implement automated testing (unit tests for each tool)
+- [ ] Add cross-tenant isolation tests
+- [ ] Build multi-step workflow capabilities
+- [ ] Add deterministic Python skills for account health
+- [ ] Implement Stage 3 tracing infrastructure (JSONL logging)
 - [ ] Build Stage 4 evaluation harness

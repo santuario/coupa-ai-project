@@ -3,7 +3,7 @@
 Available API endpoints:
   GET  /invoices            — List/filter invoices (params: supplier_id, status, overdue, min_amount, max_amount)
   GET  /invoices/{id}       — Get a single invoice by ID (params: supplier_id)
-  POST /invoices            — Create a new invoice (query: supplier_id required, body: po_id, amount, due_date, currency)
+  POST /invoices            — Create a new invoice (body: po_id, amount, due_date, currency)
 """
 
 from typing import Optional
@@ -57,6 +57,36 @@ GET_INVOICE_SCHEMA = {
 }
 
 
+CREATE_INVOICE_SCHEMA = {
+    "type": "function",
+    "name": "create_invoice",
+    "description": "Create a new invoice in the procurement system.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "po_id": {
+                "type": "integer",
+                "description": "The purchase order ID associated with this invoice (optional).",
+            },
+            "amount": {
+                "type": "number",
+                "description": "The invoice amount (required).",
+            },
+            "due_date": {
+                "type": "string",
+                "description": "The invoice due date in YYYY-MM-DD format (required).",
+            },
+            "currency": {
+                "type": "string",
+                "description": "The currency code (optional, defaults to USD).",
+                "default": "USD",
+            },
+        },
+        "required": ["amount", "due_date"],
+    },
+}
+
+
 def get_invoices(
     status: Optional[str] = None,
     overdue: Optional[bool] = None,
@@ -76,3 +106,19 @@ def get_invoices(
 def get_invoice(invoice_id: int) -> str:
     """Fetch a single invoice by ID from the procurement API."""
     return api_client.get(f"/invoices/{invoice_id}")
+
+
+def create_invoice(
+    amount: float,
+    due_date: str,
+    po_id: Optional[int] = None,
+    currency: str = "USD",
+) -> str:
+    """Create a new invoice in the procurement API."""
+    json_body = {
+        "po_id": po_id,
+        "amount": amount,
+        "due_date": due_date,
+        "currency": currency,
+    }
+    return api_client.post("/invoices", json_body=json_body)
